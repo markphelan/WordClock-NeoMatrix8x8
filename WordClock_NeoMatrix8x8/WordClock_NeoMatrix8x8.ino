@@ -1,12 +1,13 @@
 /*
    WORD CLOCK - 8x8 NeoPixel Desktop Edition
    by Andy Doro
+   Modified for Wemos D1 Mini by Mark Phelan
 
    A word clock using NeoPixel RGB LEDs for a color shift effect.
 
    Hardware:
-   - Trinket Pro 5V (should work with other Arduino-compatibles with minor modifications)
-   - DS1307 RTC breakout
+   - Wemos D1 Mini
+   - DS3231 RTC breakout
    - NeoPixel NeoMatrix 8x8
 
 
@@ -22,11 +23,8 @@
 
 
    Wiring:
-   - Solder DS1307 breakout to Trinket Pro, A2 to GND, A3 to PWR, A4 to SDA, A5 to SCL
-   If you leave off / clip the unused SQW pin on the RTC breakout, the breakout can sit right on top of the Trinket Pro
-   for a compact design! It'll be difficult to reach the Trinket Pro reset button, but you can activate the bootloader by
-   plugging in the USB.
-   - Solder NeoMatrix 5V to Trinket 5V, GND to GND, DIN to Trinket Pro pin 8.
+  - Connect NeoMatrix to 5v, GND, and D8 for data
+  - Connect RTC to Gnd = D4, 5v = D3, SDA = D2, SCL = D1
 
 
    grid pattern
@@ -53,6 +51,15 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_NeoMatrix.h>
 #include <Adafruit_NeoPixel.h>
+#include <NTPClient.h>
+#include <ESP8266WiFi.h>
+#include <WiFiUdp.h>
+
+const char *ssid     = "SSID_HERE";
+const char *password = "KEY_HERE";
+
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP);
 
 // define how to write each of the words
 
@@ -80,12 +87,30 @@ uint64_t mask;
 #define ELEVEN   mask |= 0x3F00
 #define TWELVE   mask |= 0xF600
 #define ANDYDORO mask |= 0x8901008700000000
+#define WIFI     mask |= 0x20004000C0000000
+
+#define RED 0xFF0000
+#define GREEN 0x00FF00
+
+/*        WEMOS D1 MINI PINS         
+              _________
+      (RST) -|         |- (TX)
+       (A0) -|         |- (RX)
+       (D0) -|         |- (5) = I2C_SCL
+       (14) -|         |- (4) = I2C_SDA
+       (D6) -|         |- (0)
+       (13) -|         |- (2)
+       (15) -|         |- (GND)
+      (3V3) -|   USB   |- (5V)
+              ---------
+*/
 
 // define pins
-#define NEOPIN 8  // connect to DIN on NeoMatrix 8x8
-#define RTCGND A2 // use this as DS1307 breakout ground 
-#define RTCPWR A3 // use this as DS1307 breakout power
-
+#define NEOPIN 15  // connect to DIN on NeoMatrix 8x8
+#define RTCGND 2 // use this as DS1307 breakout ground 
+#define RTCPWR 0 // use this as DS1307 breakout power
+#define I2C_SCL 5 // D1
+#define I2C_SDA 4 // D2
 
 // brightness based on time of day- could try warmer colors at night?
 #define DAYBRIGHTNESS 40
@@ -101,12 +126,12 @@ uint64_t mask;
 #define SHIFTDELAY 100   // controls color shifting speed
 
 
-RTC_DS1307 RTC; // Establish clock object
+RTC_DS3231 RTC; // Establish clock object
 DST_RTC dst_rtc; // DST object
 
 // Define US or EU rules for DST comment out as required. More countries could be added with different rules in DST_RTC.cpp
-const char rulesDST[] = "US"; // US DST rules
-// const char rulesDST[] = "EU";   // EU DST rules
+//const char rulesDST[] = "US"; // US DST rules
+const char rulesDST[] = "EU";   // EU DST rules
 
 DateTime theTime; // Holds current clock time
 
@@ -116,7 +141,7 @@ int j;   // an integer for the color shifting effect
 // https://en.wikipedia.org/wiki/Daylight_saving_time_by_country
 // Use 1 if you observe DST, 0 if you don't. This is programmed for DST in the US / Canada. If your territory's DST operates differently,
 // you'll need to modify the code in the calcTheTime() function to make this work properly.
-//#define OBSERVE_DST 1
+#define OBSERVE_DST 1
 
 
 // Parameter 1 = number of pixels in strip
@@ -139,7 +164,7 @@ void setup() {
   // put your setup code here, to run once:
 
   //Serial for debugging
-  //Serial.begin(9600);
+  Serial.begin(9600);
 
   // set pinmodes
   pinMode(NEOPIN, OUTPUT);
@@ -154,21 +179,51 @@ void setup() {
 
   // start clock
   Wire.begin();  // Begin I2C
-  RTC.begin();   // begin clock
+  if (!RTC.begin()) {
+    Serial.println("Couldn't find RTC");
+  }
+  
+  // start Wifi
+  WIFI;
+  applyMaskColour(255,0,0);
+  delay(500);
 
-  if (! RTC.isrunning()) {
+  // Try and connect to wifi for 10 seconds
+  Serial.print("Connecting to WiFi network ");
+  Serial.print(ssid);
+  WiFi.begin(ssid, password);
+  unsigned long wifiStart = millis();
+  while ( WiFi.status() != WL_CONNECTED && wifiStart < millis()-10000) {
+    delay ( 500 );
+    Serial.print ( "." );
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    WIFI;
+    applyMaskColour(0,255,0); // turn green
+    delay(1500);
+    // set the RTC from NTP
+    timeClient.update();
+    unsigned long epochTime = timeClient.getEpochTime();
+    Serial.print("Got NTP time ");
+    Serial.println(epochTime);
+    RTC.adjust(epochTime);
+  }
+  
+  if (RTC.lostPower()) {
     Serial.println("RTC is NOT running!");
-    // following line sets the RTC to the date & time this sketch was compiled
-    RTC.adjust(DateTime(__DATE__, __TIME__));
+    
+    // THIS CAUSED ISSUES WITH BST/GMT SO I JUST DISABLED IT
     // DST? If we're in it, let's subtract an hour from the RTC time to keep our DST calculation correct. This gives us
     // Standard Time which our DST check will add an hour back to if we're in DST.
-    DateTime standardTime = RTC.now();
-    if (dst_rtc.checkDST(standardTime) == true) { // check whether we're in DST right now. If we are, subtract an hour.
-      standardTime = standardTime.unixtime() - 3600;
-    }
-    RTC.adjust(standardTime);
+    //DateTime standardTime = RTC.now();
+    //if (dst_rtc.checkDST(standardTime) == true) { // check whether we're in DST right now. If we are, subtract an hour.
+        //  standardTime = standardTime.unixtime() - 3600;
+    //}
+    //RTC.adjust(standardTime);
   }
 
+  Serial.print("RTC set to ");
+  Serial.println((RTC.now()).unixtime());
 
   matrix.begin();
   matrix.setBrightness(DAYBRIGHTNESS);
@@ -176,10 +231,10 @@ void setup() {
   matrix.show();
 
   // startup sequence... do colorwipe?
-  // delay(500);
-  // rainbowCycle(20);
+  //delay(500);
+  //rainbowCycle(2);
   delay(500);
-  flashWords(); // briefly flash each word in sequence
+  //flashWords(); // briefly flash each word in sequence
   delay(500);
 }
 
@@ -198,5 +253,3 @@ void loop() {
 
 
 }
-
-

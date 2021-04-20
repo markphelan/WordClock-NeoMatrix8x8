@@ -8,12 +8,13 @@ https://andydoro.com/wordclockdesktop/
 
 A word clock which uses NeoPixel RGB LEDs for a color shifting effect.
 
+(Modified by Mark Phelan to run on Wemos D1 Mini)
 
 Hardware:
 -------
  
- - [Trinket Pro 5V](https://www.adafruit.com/product/2000) (should work with other Arduino-compatibles with minor modifications) 
- - [DS1307 RTC breakout](https://www.adafruit.com/products/3296)
+ - Wemos D1 Mini
+ - DS3231 RTC
  - [NeoPixel NeoMatrix 8x8](https://www.adafruit.com/products/1487)
  - laser cut faceplate & enclosure
  
@@ -32,9 +33,8 @@ This code requires the following libraries:
 Wiring:
 -------
 
- - Solder DS1307 breakout to Trinket Pro, A2 to GND, A3 to PWR, A4 to SDA, A5 to SCL  
-   If you leave off / clip the unused SQW pin on the RTC breakout, the breakout can sit right on top of the Trinket Pro for a compact design! It'll be difficult to reach the Trinket Pro reset button, but you can activate the bootloader by plugging in the USB.
- - Solder NeoMatrix 5V to Trinket 5V, GND to GND, DIN to Trinket Pro pin 8.
+ - Connect RTC to Gnd = D4, 5v = D3, SDA = D2, SCL = D1
+ - Solder NeoMatrix 5V to Trinket 5V, GND to GND, DIN to D8.
  
 
 grid pattern:

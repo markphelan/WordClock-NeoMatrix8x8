@@ -51,6 +51,23 @@ uint32_t Wheel(byte WheelPos) {
   return (red << 8) | (green << 5) | (blue << 3) | 0xFF000000;
 }
 
+// Show text in a single RGB colour
+void applyMaskColour(uint8_t r, uint8_t g, uint8_t b) {
+  for (byte i = 0; i < 64; i++) {
+    boolean masker = bitRead(mask, 63 - i); // bitread is backwards because bitRead reads rightmost digits first. could have defined the word masks differently
+    switch (masker) {
+      case 0:
+        matrix.setPixelColor(i, 0, 0, 0);
+        break;
+      case 1:
+        matrix.setPixelColor(i, r, g, b);
+        break;
+    }
+  }
+
+  matrix.show(); // show it!
+  mask = 0;
+}
 
 // Slightly different, this makes the rainbow equally distributed throughout
 void rainbowCycle(uint8_t wait) {
@@ -65,4 +82,3 @@ void rainbowCycle(uint8_t wait) {
     delay(wait);
   }
 }
-
